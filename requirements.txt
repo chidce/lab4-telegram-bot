@@ -1,6 +1,2 @@
-pyTelegramBotAPI
-<<<<<<< HEAD
-flask
-=======
-Flask
->>>>>>> 19dd5cd (Add requirements.txt)
+pyTelegramBotAPI==4.27.0
+flask==3.1.1
