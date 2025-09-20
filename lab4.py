@@ -5,15 +5,20 @@ import sqlite3
 import hashlib
 import os
 
-TOKEN = os.environ.get('8359451352:AAG-z6lpvX0QP18weJfBS5T7twBcS7qMoEw')  # Получаем токен из переменных окружения для безопасности
-WEBHOOK_URL = "https://lab4-telegram-bot.onrender.com"  # Твой URL на Render (можно тоже из env, если нужно)
+# Токен указан напрямую, как в примере
+TOKEN = "8359451352:AAG-z6lpvX0QP18weJfBS5T7twBcS7qMoEw"
+WEBHOOK_URL = "https://lab4-telegram-bot.onrender.com"  # URL для Render
+
+# Проверка токена на валидность
+if not TOKEN or len(TOKEN.strip()) == 0:
+    raise ValueError("Ошибка: Токен бота не указан или пустой.")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
 # --------------------- База данных ---------------------
-# Для persistence на Render рекомендуется использовать внешнюю DB (например, PostgreSQL),
-# но для простоты оставляем SQLite. В отчёте укажи, что для production нужна persistent DB.
+# Для Render рекомендуется persistent storage или external DB (например, PostgreSQL).
+# Для простоты оставляем SQLite, но в отчёте упомяни ephemeral storage как недостаток.
 conn = sqlite3.connect('bot.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
@@ -182,10 +187,14 @@ def finish_delete_user(message):
             bot.send_message(chat_id, "Нельзя удалить самого себя.")
             return
         cursor.execute("SELECT is_admin FROM users WHERE chat_id=?", (target_id,))
-        if cursor.fetchone() and cursor.fetchone()[0] == 1:
+        user = cursor.fetchone()
+        if user and user[0] == 1:
             bot.send_message(chat_id, "Нельзя удалить другого администратора.")
             return
         cursor.execute("DELETE FROM users WHERE chat_id=?", (target_id,))
+        if cursor.rowcount == 0:
+            bot.send_message(chat_id, f"Пользователь {target_id} не найден.")
+            return
         conn.commit()
         bot.send_message(chat_id, f"Пользователь {target_id} удалён.")
     except ValueError:
