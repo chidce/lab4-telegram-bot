@@ -1,5 +1,5 @@
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, request
 import sqlite3
 import hashlib
@@ -41,7 +41,26 @@ def is_admin(chat_id):
     user = get_user(chat_id)
     return user[3] == 1 if user else False
 
-# --- Команды регистрации и входа ---
+# --- ReplyKeyboard для удобства ---
+def main_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row(KeyboardButton('/register'), KeyboardButton('/login'))
+    markup.row(KeyboardButton('/predict'), KeyboardButton('/logout'))
+    markup.row(KeyboardButton('/admin_help'))
+    markup.row(KeyboardButton('/request_admin'))
+    return markup
+
+# --- Команды ---
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    chat_id = message.chat.id
+    first_user = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    if first_user:
+        bot.send_message(chat_id, "Привет! Ты первый пользователь, назначен администратором.", reply_markup=main_keyboard())
+    else:
+        bot.send_message(chat_id, "Привет! Используй кнопки для команд.", reply_markup=main_keyboard())
+
+# --- Регистрация ---
 @bot.message_handler(commands=['register'])
 def register(message):
     chat_id = message.chat.id
@@ -65,6 +84,7 @@ def process_registration(message):
         f"Регистрация успешна! {'Вы стали администратором.' if first_user else ''}"
     )
 
+# --- Вход ---
 @bot.message_handler(commands=['login'])
 def login(message):
     chat_id = message.chat.id
@@ -85,10 +105,11 @@ def process_login(message):
     if user[1] == hash_password(password):
         cursor.execute("UPDATE users SET logged_in=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
-        bot.reply_to(message, "Вы вошли в систему!")
+        bot.reply_to(message, "Успешный вход!")
     else:
         bot.reply_to(message, "Неверный пароль.")
 
+# --- Выход ---
 @bot.message_handler(commands=['logout'])
 def logout(message):
     chat_id = message.chat.id
@@ -99,7 +120,7 @@ def logout(message):
     conn.commit()
     bot.reply_to(message, "Вы вышли из системы.")
 
-# --- Заглушка для /predict ---
+# --- Заглушка /predict ---
 @bot.message_handler(commands=['predict'])
 def predict(message):
     chat_id = message.chat.id
@@ -108,7 +129,7 @@ def predict(message):
         return
     cursor.execute("UPDATE users SET predictions_count = predictions_count + 1 WHERE chat_id=?", (chat_id,))
     conn.commit()
-    bot.reply_to(message, "Все работает!")
+    bot.reply_to(message, "Все работает! (заглушка)")
 
 # --- Запрос прав администратора ---
 @bot.message_handler(commands=['request_admin'])
@@ -126,11 +147,11 @@ def request_admin(message):
     bot.reply_to(message, "Запрос на права администратора отправлен.")
 
 # --- Панель администратора ---
-@bot.message_handler(commands=['admin'])
-def admin_panel(message):
+@bot.message_handler(commands=['admin_help'])
+def admin_help(message):
     chat_id = message.chat.id
     if not is_admin(chat_id):
-        bot.reply_to(message, "Только администратор может использовать панель.")
+        bot.reply_to(message, "Нет доступа.")
         return
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("Показать пользователей", callback_data="show_users"))
