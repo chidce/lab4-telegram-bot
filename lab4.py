@@ -3,8 +3,8 @@ import telebot
 from flask import Flask, request
 
 # ======= Настройки =======
-API_TOKEN = "ТВОЙ_ТОКЕН_БОТА"  # Вставь свой токен
-WEBHOOK_URL = "https://твое-имя-проекта.up.railway.app"  # Публичный URL проекта Railway/Render
+API_TOKEN = "8359451352:AAG-z6lpvX0QP18weJfBS5T7twBcS7qMoEw"  # Вставь свой токен
+WEBHOOK_URL = "https://lab4-telegram-bot.onrender.com"  # Публичный URL проекта Railway/Render
 DB_NAME = "users.db"
 
 bot = telebot.TeleBot(API_TOKEN)
