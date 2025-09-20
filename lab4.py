@@ -3,7 +3,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, request
 import sqlite3
 
-API_TOKEN = "ТВОЙ_ТОКЕН_БОТА"
+API_TOKEN = "8359451352:AAG-z6lpvX0QP18weJfBS5T7twBcS7qMoEw"
 WEBHOOK_URL = "https://lab4-telegram-bot.onrender.com"
 
 bot = telebot.TeleBot(API_TOKEN)
