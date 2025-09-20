@@ -2,6 +2,7 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask, request
 import sqlite3
+import hashlib
 
 API_TOKEN = "8359451352:AAG-z6lpvX0QP18weJfBS5T7twBcS7qMoEw"
 WEBHOOK_URL = "https://lab4-telegram-bot.onrender.com"
@@ -15,15 +16,19 @@ cursor = conn.cursor()
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     chat_id INTEGER PRIMARY KEY,
-    password TEXT,
+    password_hash TEXT,
     logged_in INTEGER DEFAULT 0,
     is_admin INTEGER DEFAULT 0,
-    predictions_count INTEGER DEFAULT 0
+    predictions_count INTEGER DEFAULT 0,
+    admin_request INTEGER DEFAULT 0
 )
 """)
 conn.commit()
 
 # --- Вспомогательные функции ---
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
 def get_user(chat_id):
     cursor.execute("SELECT * FROM users WHERE chat_id=?", (chat_id,))
     return cursor.fetchone()
@@ -50,11 +55,10 @@ def process_registration(message):
     chat_id = message.chat.id
     password = message.text.strip()
     is_first = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
-    is_admin_flag = 1 if is_first else 0
-    cursor.execute("INSERT INTO users(chat_id,password,is_admin) VALUES(?,?,?)",
-                   (chat_id, password, is_admin_flag))
+    cursor.execute("INSERT INTO users(chat_id,password_hash,is_admin) VALUES(?,?,?)",
+                   (chat_id, hash_password(password), 1 if is_first else 0))
     conn.commit()
-    bot.reply_to(message, f"Вы зарегистрированы! {'Вы стали администратором.' if is_admin_flag else ''}")
+    bot.reply_to(message, f"Вы зарегистрированы! {'Вы стали администратором.' if is_first else ''}")
 
 @bot.message_handler(commands=['login'])
 def login(message):
@@ -70,7 +74,7 @@ def process_login(message):
     chat_id = message.chat.id
     password = message.text.strip()
     user = get_user(chat_id)
-    if user[1] == password:
+    if user[1] == hash_password(password):
         cursor.execute("UPDATE users SET logged_in=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
         bot.reply_to(message, "Вы вошли в систему!")
@@ -98,6 +102,21 @@ def predict(message):
     conn.commit()
     bot.reply_to(message, "Все работает!")
 
+# --- Запрос на права администратора ---
+@bot.message_handler(commands=['request_admin'])
+def request_admin(message):
+    chat_id = message.chat.id
+    user = get_user(chat_id)
+    if not user:
+        bot.reply_to(message, "Сначала зарегистрируйтесь через /register.")
+        return
+    if is_admin(chat_id):
+        bot.reply_to(message, "Вы уже администратор.")
+        return
+    cursor.execute("UPDATE users SET admin_request=1 WHERE chat_id=?", (chat_id,))
+    conn.commit()
+    bot.reply_to(message, "Запрос на права администратора отправлен. Дождитесь подтверждения от существующего админа.")
+
 # --- Панель администратора с кнопками ---
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
@@ -107,7 +126,7 @@ def admin_panel(message):
         return
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("Показать пользователей", callback_data="show_users"))
-    markup.add(InlineKeyboardButton("Добавить админа", callback_data="add_admin"))
+    markup.add(InlineKeyboardButton("Одобрить запросы на админа", callback_data="approve_admins"))
     markup.add(InlineKeyboardButton("Удалить пользователя", callback_data="delete_user"))
     bot.send_message(chat_id, "Выберите действие:", reply_markup=markup)
 
@@ -118,21 +137,19 @@ def callback_inline(call):
         users = cursor.execute("SELECT chat_id, predictions_count, is_admin FROM users").fetchall()
         reply = "\n".join([f"ID: {u[0]}, predictions: {u[1]}, admin: {bool(u[2])}" for u in users])
         bot.send_message(chat_id, reply or "Нет пользователей.")
-    elif call.data == "add_admin":
-        msg = bot.send_message(chat_id, "Введите chat_id нового администратора:")
-        bot.register_next_step_handler(msg, process_add_admin)
+    elif call.data == "approve_admins":
+        requests = cursor.execute("SELECT chat_id FROM users WHERE admin_request=1").fetchall()
+        if not requests:
+            bot.send_message(chat_id, "Нет запросов на права администратора.")
+            return
+        for req in requests:
+            user_id = req[0]
+            cursor.execute("UPDATE users SET is_admin=1, admin_request=0 WHERE chat_id=?", (user_id,))
+            bot.send_message(chat_id, f"Пользователь {user_id} стал администратором!")
+        conn.commit()
     elif call.data == "delete_user":
         msg = bot.send_message(chat_id, "Введите chat_id пользователя для удаления:")
         bot.register_next_step_handler(msg, process_delete_user)
-
-def process_add_admin(message):
-    try:
-        new_admin_id = int(message.text.strip())
-        cursor.execute("UPDATE users SET is_admin=1 WHERE chat_id=?", (new_admin_id,))
-        conn.commit()
-        bot.reply_to(message, f"{new_admin_id} теперь администратор!")
-    except:
-        bot.reply_to(message, "Ошибка: введён некорректный chat_id.")
 
 def process_delete_user(message):
     try:
