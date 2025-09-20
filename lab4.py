@@ -23,12 +23,10 @@ app = Flask(__name__)
 
 # --------------------- База данных ---------------------
 try:
-    # Для persistent disk на Render (настрой в дашборде)
+    # Для persistent disk на Render
     db_dir = '/opt/render/project/src/data'
     os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(os.path.join(db_dir, 'bot.db'), check_same_thread=False)
-    # Альтернатива: локальный файл (данные теряются при редеплое)
-    # conn = sqlite3.connect('bot.db', check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users(
@@ -88,14 +86,33 @@ def hash_password(password):
 def start(message):
     chat_id = message.chat.id
     logger.info(f"Команда /start от chat_id {chat_id}")
+    
+    # Создаём клавиатуру
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    
     if not is_registered(chat_id):
         user_count = get_user_count()
         if user_count == 0:
             bot.send_message(chat_id, "Ты первый пользователь. Зарегистрируйся, и ты станешь администратором.")
+            # Кнопки для незарегистрированного пользователя
+            markup.add(KeyboardButton("/register"))
+            markup.add(KeyboardButton("/help"))
         else:
             bot.send_message(chat_id, "Ты не зарегистрирован. Используй /register.")
-        return
-    bot.send_message(chat_id, "Привет! Используй /help для списка команд.")
+            # Кнопки для незарегистрированного пользователя
+            markup.add(KeyboardButton("/register"))
+            markup.add(KeyboardButton("/help"))
+    else:
+        bot.send_message(chat_id, "Привет! Выбери команду:")
+        # Кнопки для зарегистрированного пользователя
+        markup.add(KeyboardButton("/login") if not is_logged_in(chat_id) else KeyboardButton("/logout"))
+        markup.add(KeyboardButton("/predict") if is_logged_in(chat_id) else KeyboardButton("/help"))
+        if is_admin(chat_id):
+            markup.add(KeyboardButton("/admin_help"))
+        else:
+            markup.add(KeyboardButton("/help"))
+    
+    bot.send_message(chat_id, "Выбери действие:", reply_markup=markup)
 
 @bot.message_handler(commands=['help'])
 def help_cmd(message):
