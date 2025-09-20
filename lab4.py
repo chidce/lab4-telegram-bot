@@ -88,31 +88,25 @@ def start(message):
     logger.info(f"Команда /start от chat_id {chat_id}")
     
     # Создаём клавиатуру
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
+    # Добавляем все возможные команды
+    markup.add(KeyboardButton("/register"))
+    markup.add(KeyboardButton("/login"))
+    markup.add(KeyboardButton("/predict"))
+    markup.add(KeyboardButton("/logout"))
+    markup.add(KeyboardButton("/help"))
+    if is_admin(chat_id):
+        markup.add(KeyboardButton("/admin_help"))
+
     if not is_registered(chat_id):
         user_count = get_user_count()
         if user_count == 0:
-            bot.send_message(chat_id, "Ты первый пользователь. Зарегистрируйся, и ты станешь администратором.")
-            # Кнопки для незарегистрированного пользователя
-            markup.add(KeyboardButton("/register"))
-            markup.add(KeyboardButton("/help"))
+            bot.send_message(chat_id, "Ты первый пользователь. Зарегистрируйся, и ты станешь администратором.", reply_markup=markup)
         else:
-            bot.send_message(chat_id, "Ты не зарегистрирован. Используй /register.")
-            # Кнопки для незарегистрированного пользователя
-            markup.add(KeyboardButton("/register"))
-            markup.add(KeyboardButton("/help"))
+            bot.send_message(chat_id, "Ты не зарегистрирован. Используй /register.", reply_markup=markup)
     else:
-        bot.send_message(chat_id, "Привет! Выбери команду:")
-        # Кнопки для зарегистрированного пользователя
-        markup.add(KeyboardButton("/login") if not is_logged_in(chat_id) else KeyboardButton("/logout"))
-        markup.add(KeyboardButton("/predict") if is_logged_in(chat_id) else KeyboardButton("/help"))
-        if is_admin(chat_id):
-            markup.add(KeyboardButton("/admin_help"))
-        else:
-            markup.add(KeyboardButton("/help"))
-    
-    bot.send_message(chat_id, "Выбери действие:", reply_markup=markup)
+        bot.send_message(chat_id, "Привет! Выбери команду:", reply_markup=markup)
 
 @bot.message_handler(commands=['help'])
 def help_cmd(message):
