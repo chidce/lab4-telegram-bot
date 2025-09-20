@@ -23,7 +23,12 @@ app = Flask(__name__)
 
 # --------------------- База данных ---------------------
 try:
-    conn = sqlite3.connect('/opt/render/project/src/data/bot.db', check_same_thread=False)
+    # Для persistent disk на Render (настрой в дашборде)
+    db_dir = '/opt/render/project/src/data'
+    os.makedirs(db_dir, exist_ok=True)
+    conn = sqlite3.connect(os.path.join(db_dir, 'bot.db'), check_same_thread=False)
+    # Альтернатива: локальный файл (данные теряются при редеплое)
+    # conn = sqlite3.connect('bot.db', check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS users(
@@ -110,16 +115,21 @@ def register(message):
     if is_registered(chat_id):
         bot.send_message(chat_id, "Ты уже зарегистрирован.")
         return
+    bot.clear_step_handler_by_chat_id(chat_id)
     msg = bot.send_message(chat_id, "Введите пароль для регистрации (минимум 6 символов):")
     bot.register_next_step_handler(msg, finish_register)
 
 def finish_register(message):
     chat_id = message.chat.id
     try:
+        if not message.text:
+            bot.send_message(chat_id, "Пароль не введён. Попробуй снова /register.")
+            logger.warning(f"Пустой пароль от chat_id {chat_id}")
+            return
         password = message.text.strip()
         logger.info(f"Получен пароль для регистрации от chat_id {chat_id}")
-        if not password or len(password) < 6:
-            bot.send_message(chat_id, "Пароль слишком короткий или пустой. Попробуй снова /register.")
+        if len(password) < 6:
+            bot.send_message(chat_id, "Пароль слишком короткий. Попробуй снова /register.")
             return
         password_hash = hash_password(password)
         is_admin_val = 1 if get_user_count() == 0 else 0
@@ -134,6 +144,8 @@ def finish_register(message):
     except Exception as e:
         logger.error(f"Ошибка при регистрации chat_id {chat_id}: {e}")
         bot.send_message(chat_id, "Произошла ошибка при регистрации. Попробуй снова /register.")
+    finally:
+        bot.clear_step_handler_by_chat_id(chat_id)
 
 @bot.message_handler(commands=['login'])
 def login(message):
@@ -142,12 +154,17 @@ def login(message):
     if not is_registered(chat_id):
         bot.send_message(chat_id, "Ты не зарегистрирован.")
         return
+    bot.clear_step_handler_by_chat_id(chat_id)
     msg = bot.send_message(chat_id, "Введите пароль для входа:")
     bot.register_next_step_handler(msg, finish_login)
 
 def finish_login(message):
     chat_id = message.chat.id
     try:
+        if not message.text:
+            bot.send_message(chat_id, "Пароль не введён. Попробуй снова /login.")
+            logger.warning(f"Пустой пароль для входа от chat_id {chat_id}")
+            return
         password = message.text
         logger.info(f"Получен пароль для входа от chat_id {chat_id}")
         password_hash = hash_password(password)
@@ -164,6 +181,8 @@ def finish_login(message):
     except Exception as e:
         logger.error(f"Ошибка при входе chat_id {chat_id}: {e}")
         bot.send_message(chat_id, "Произошла ошибка при входе. Попробуй снова /login.")
+    finally:
+        bot.clear_step_handler_by_chat_id(chat_id)
 
 @bot.message_handler(commands=['logout'])
 def logout(message):
@@ -228,6 +247,7 @@ def delete_user(message):
     if not is_admin(chat_id):
         bot.send_message(chat_id, "Нет доступа.")
         return
+    bot.clear_step_handler_by_chat_id(chat_id)
     msg = bot.send_message(chat_id, "Введите chat_id пользователя для удаления:")
     bot.register_next_step_handler(msg, finish_delete_user)
 
@@ -257,6 +277,8 @@ def finish_delete_user(message):
     except Exception as e:
         logger.error(f"Ошибка при удалении пользователя для chat_id {chat_id}: {e}")
         bot.send_message(chat_id, "Произошла ошибка при удалении пользователя.")
+    finally:
+        bot.clear_step_handler_by_chat_id(chat_id)
 
 @bot.message_handler(commands=['add_admin'])
 def add_admin(message):
@@ -265,6 +287,7 @@ def add_admin(message):
     if not is_admin(chat_id):
         bot.send_message(chat_id, "Нет доступа.")
         return
+    bot.clear_step_handler_by_chat_id(chat_id)
     msg = bot.send_message(chat_id, "Введите chat_id нового администратора:")
     bot.register_next_step_handler(msg, finish_add_admin)
 
@@ -286,6 +309,8 @@ def finish_add_admin(message):
     except Exception as e:
         logger.error(f"Ошибка при назначении админа для chat_id {chat_id}: {e}")
         bot.send_message(chat_id, "Произошла ошибка при назначении администратора.")
+    finally:
+        bot.clear_step_handler_by_chat_id(chat_id)
 
 # --------------------- Webhook ---------------------
 @app.route('/', methods=['POST'])
