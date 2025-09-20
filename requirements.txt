@@ -1,2 +1,6 @@
 pyTelegramBotAPI
+<<<<<<< HEAD
 flask
+=======
+Flask
+>>>>>>> 19dd5cd (Add requirements.txt)
