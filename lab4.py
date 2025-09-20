@@ -2,20 +2,24 @@ import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, request
 import sqlite3
+import hashlib
+import os
 
-TOKEN = "8359451352:AAG-z6lpvX0QP18weJfBS5T7twBcS7qMoEw"
-WEBHOOK_URL = "https://lab4-telegram-bot.onrender.com"  # твой URL на Render
+TOKEN = os.environ.get('8359451352:AAG-z6lpvX0QP18weJfBS5T7twBcS7qMoEw')  # Получаем токен из переменных окружения для безопасности
+WEBHOOK_URL = "https://lab4-telegram-bot.onrender.com"  # Твой URL на Render (можно тоже из env, если нужно)
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
 # --------------------- База данных ---------------------
+# Для persistence на Render рекомендуется использовать внешнюю DB (например, PostgreSQL),
+# но для простоты оставляем SQLite. В отчёте укажи, что для production нужна persistent DB.
 conn = sqlite3.connect('bot.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS users(
     chat_id INTEGER PRIMARY KEY,
-    password TEXT,
+    password_hash TEXT,
     is_logged INTEGER,
     is_admin INTEGER,
     predictions_count INTEGER DEFAULT 0
@@ -38,27 +42,25 @@ def is_admin(chat_id):
     res = cursor.fetchone()
     return res and res[0] == 1
 
-def first_user_is_admin(chat_id):
+def get_user_count():
     cursor.execute("SELECT COUNT(*) FROM users")
-    count = cursor.fetchone()[0]
-    if count == 0:
-        cursor.execute("INSERT INTO users(chat_id, password, is_logged, is_admin) VALUES (?,?,?,?)",
-                       (chat_id, "", 0, 1))
-        conn.commit()
-        return True
-    return False
+    return cursor.fetchone()[0]
+
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
 # --------------------- Команды ---------------------
 @bot.message_handler(commands=['start'])
 def start(message):
     chat_id = message.chat.id
     if not is_registered(chat_id):
-        if first_user_is_admin(chat_id):
-            bot.send_message(chat_id, "Ты первый пользователь, назначен администратором.")
+        user_count = get_user_count()
+        if user_count == 0:
+            bot.send_message(chat_id, "Ты первый пользователь. Зарегистрируйся, и ты станешь администратором.")
         else:
-            bot.send_message(chat_id, "Ты не зарегистрирован.")
-    else:
-        bot.send_message(chat_id, "Привет! Используй /help для списка команд.")
+            bot.send_message(chat_id, "Ты не зарегистрирован. Используй /register.")
+        return
+    bot.send_message(chat_id, "Привет! Используй /help для списка команд.")
 
 @bot.message_handler(commands=['help'])
 def help_cmd(message):
@@ -76,16 +78,24 @@ def register(message):
     if is_registered(chat_id):
         bot.send_message(chat_id, "Ты уже зарегистрирован.")
         return
-    msg = bot.send_message(chat_id, "Введите пароль для регистрации:")
+    msg = bot.send_message(chat_id, "Введите пароль для регистрации (минимум 6 символов):")
     bot.register_next_step_handler(msg, finish_register)
 
 def finish_register(message):
     chat_id = message.chat.id
-    password = message.text
-    cursor.execute("INSERT INTO users(chat_id, password, is_logged, is_admin) VALUES (?,?,?,?)",
-                   (chat_id, password, 1, 0))
+    password = message.text.strip()
+    if len(password) < 6:
+        bot.send_message(chat_id, "Пароль слишком короткий. Попробуй снова /register.")
+        return
+    password_hash = hash_password(password)
+    is_admin_val = 1 if get_user_count() == 0 else 0  # Первый пользователь - admin
+    cursor.execute("INSERT INTO users(chat_id, password_hash, is_logged, is_admin) VALUES (?,?,?,?)",
+                   (chat_id, password_hash, 1, is_admin_val))
     conn.commit()
-    bot.send_message(chat_id, "Регистрация успешна! Теперь ты вошёл в систему.")
+    if is_admin_val:
+        bot.send_message(chat_id, "Регистрация успешна! Ты первый пользователь и назначен администратором. Теперь ты вошёл в систему.")
+    else:
+        bot.send_message(chat_id, "Регистрация успешна! Теперь ты вошёл в систему.")
 
 @bot.message_handler(commands=['login'])
 def login(message):
@@ -99,9 +109,10 @@ def login(message):
 def finish_login(message):
     chat_id = message.chat.id
     password = message.text
-    cursor.execute("SELECT password FROM users WHERE chat_id=?", (chat_id,))
-    real_password = cursor.fetchone()[0]
-    if password == real_password:
+    password_hash = hash_password(password)
+    cursor.execute("SELECT password_hash FROM users WHERE chat_id=?", (chat_id,))
+    real_hash = cursor.fetchone()[0]
+    if password_hash == real_hash:
         cursor.execute("UPDATE users SET is_logged=1 WHERE chat_id=?", (chat_id,))
         conn.commit()
         bot.send_message(chat_id, "Успешный вход!")
@@ -165,10 +176,20 @@ def delete_user(message):
 
 def finish_delete_user(message):
     chat_id = message.chat.id
-    target_id = int(message.text)
-    cursor.execute("DELETE FROM users WHERE chat_id=?", (target_id,))
-    conn.commit()
-    bot.send_message(chat_id, f"Пользователь {target_id} удалён.")
+    try:
+        target_id = int(message.text)
+        if target_id == chat_id:
+            bot.send_message(chat_id, "Нельзя удалить самого себя.")
+            return
+        cursor.execute("SELECT is_admin FROM users WHERE chat_id=?", (target_id,))
+        if cursor.fetchone() and cursor.fetchone()[0] == 1:
+            bot.send_message(chat_id, "Нельзя удалить другого администратора.")
+            return
+        cursor.execute("DELETE FROM users WHERE chat_id=?", (target_id,))
+        conn.commit()
+        bot.send_message(chat_id, f"Пользователь {target_id} удалён.")
+    except ValueError:
+        bot.send_message(chat_id, "Неверный chat_id. Должен быть числом.")
 
 @bot.message_handler(commands=['add_admin'])
 def add_admin(message):
@@ -181,10 +202,16 @@ def add_admin(message):
 
 def finish_add_admin(message):
     chat_id = message.chat.id
-    target_id = int(message.text)
-    cursor.execute("UPDATE users SET is_admin=1 WHERE chat_id=?", (target_id,))
-    conn.commit()
-    bot.send_message(chat_id, f"Пользователь {target_id} теперь администратор.")
+    try:
+        target_id = int(message.text)
+        if not is_registered(target_id):
+            bot.send_message(chat_id, "Пользователь не зарегистрирован.")
+            return
+        cursor.execute("UPDATE users SET is_admin=1 WHERE chat_id=?", (target_id,))
+        conn.commit()
+        bot.send_message(chat_id, f"Пользователь {target_id} теперь администратор.")
+    except ValueError:
+        bot.send_message(chat_id, "Неверный chat_id. Должен быть числом.")
 
 # --------------------- Webhook ---------------------
 @app.route('/', methods=['POST'])
@@ -201,4 +228,5 @@ def index():
 if __name__ == '__main__':
     bot.remove_webhook()
     bot.set_webhook(url=WEBHOOK_URL)
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get('PORT', 5000))  # Для Render порт из env
+    app.run(host="0.0.0.0", port=port)
