@@ -10,7 +10,7 @@ WEBHOOK_URL = "https://lab4-telegram-bot.onrender.com"
 bot = telebot.TeleBot(API_TOKEN)
 app = Flask(__name__)
 
-# --- База данных ---
+# --- Инициализация базы данных ---
 conn = sqlite3.connect('bot.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("""
@@ -41,7 +41,7 @@ def is_admin(chat_id):
     user = get_user(chat_id)
     return user[3] == 1 if user else False
 
-# --- Регистрация и логин ---
+# --- Команды регистрации и входа ---
 @bot.message_handler(commands=['register'])
 def register(message):
     chat_id = message.chat.id
@@ -54,11 +54,16 @@ def register(message):
 def process_registration(message):
     chat_id = message.chat.id
     password = message.text.strip()
-    is_first = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
-    cursor.execute("INSERT INTO users(chat_id,password_hash,is_admin) VALUES(?,?,?)",
-                   (chat_id, hash_password(password), 1 if is_first else 0))
+    first_user = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    cursor.execute(
+        "INSERT INTO users(chat_id,password_hash,is_admin) VALUES(?,?,?)",
+        (chat_id, hash_password(password), 1 if first_user else 0)
+    )
     conn.commit()
-    bot.reply_to(message, f"Вы зарегистрированы! {'Вы стали администратором.' if is_first else ''}")
+    bot.reply_to(
+        message,
+        f"Регистрация успешна! {'Вы стали администратором.' if first_user else ''}"
+    )
 
 @bot.message_handler(commands=['login'])
 def login(message):
@@ -66,6 +71,9 @@ def login(message):
     user = get_user(chat_id)
     if not user:
         bot.reply_to(message, "Вы не зарегистрированы! Используйте /register.")
+        return
+    if user[2] == 1:
+        bot.reply_to(message, "Вы уже вошли в систему!")
         return
     msg = bot.send_message(chat_id, "Введите пароль для входа:")
     bot.register_next_step_handler(msg, process_login)
@@ -85,7 +93,7 @@ def process_login(message):
 def logout(message):
     chat_id = message.chat.id
     if not is_logged_in(chat_id):
-        bot.reply_to(message, "Вы не вошли в систему.")
+        bot.reply_to(message, "Вы не авторизованы.")
         return
     cursor.execute("UPDATE users SET logged_in=0 WHERE chat_id=?", (chat_id,))
     conn.commit()
@@ -96,13 +104,13 @@ def logout(message):
 def predict(message):
     chat_id = message.chat.id
     if not is_logged_in(chat_id):
-        bot.reply_to(message, "Сначала войдите в систему с помощью /login.")
+        bot.reply_to(message, "Сначала войдите через /login.")
         return
     cursor.execute("UPDATE users SET predictions_count = predictions_count + 1 WHERE chat_id=?", (chat_id,))
     conn.commit()
     bot.reply_to(message, "Все работает!")
 
-# --- Запрос на права администратора ---
+# --- Запрос прав администратора ---
 @bot.message_handler(commands=['request_admin'])
 def request_admin(message):
     chat_id = message.chat.id
@@ -115,9 +123,9 @@ def request_admin(message):
         return
     cursor.execute("UPDATE users SET admin_request=1 WHERE chat_id=?", (chat_id,))
     conn.commit()
-    bot.reply_to(message, "Запрос на права администратора отправлен. Дождитесь подтверждения от существующего админа.")
+    bot.reply_to(message, "Запрос на права администратора отправлен.")
 
-# --- Панель администратора с кнопками ---
+# --- Панель администратора ---
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     chat_id = message.chat.id
@@ -163,16 +171,15 @@ def process_delete_user(message):
 # --- Flask сервер для webhook ---
 @app.route("/", methods=["GET"])
 def index():
-    return "<h1>Bot is running</h1><p>Check console logs for incoming messages</p>"
+    return "<h1>Bot is running</h1><p>Используй Telegram для работы с ботом.</p>"
 
 @app.route("/", methods=["POST"])
 def webhook():
     json_data = request.get_json()
-    print("Incoming update:", json_data)
     bot.process_new_updates([telebot.types.Update.de_json(json_data)])
     return "OK", 200
 
-# --- Установка webhook ---
+# --- Настройка webhook ---
 bot.remove_webhook()
 bot.set_webhook(url=WEBHOOK_URL)
 
