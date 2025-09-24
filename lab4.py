@@ -279,7 +279,7 @@ def predict(message):
             cur = conn.cursor()
             cur.execute("UPDATE users SET predictions_count=predictions_count+1 WHERE chat_id=?", (chat_id,))
             conn.commit()
-        bot.send_message(chat_id, "Все работает! (заглушка)")
+        bot.send_message(chat_id, "Все работает!")
     else:
         bot.send_message(chat_id, "Сначала войдите через /login.")
 
