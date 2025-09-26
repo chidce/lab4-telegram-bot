@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # --------------------- Конфигурация ---------------------
 TOKEN = os.environ.get('8359451352:AAG-z6lpvX0QP18weJfBS5T7twBcS7qMoEw')
-WEBHOOK_URL = os.environ.get('https://lab4-telegram-bot.onrender.com')  # укажи в env
+WEBHOOK_URL = os.environ.get('https://lab4-telegram-bot.onrender.com')  
 
 if not TOKEN:
     raise ValueError("TELEGRAM_TOKEN не задан в переменных окружения.")
